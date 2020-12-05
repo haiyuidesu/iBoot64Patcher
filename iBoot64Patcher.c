@@ -120,11 +120,17 @@ uint64_t locate_func(void *ibot, uint32_t insn, uint32_t _insn, unsigned int len
 uint64_t rmv_signature_check(void *ibot, unsigned int length) {
   printf("\n[%s]: removing signatures checks...\n", __func__);
 
-  // RET | mov x2, #0x800000000 : mov w0, #0x4348
   uint64_t insn = 0;
 
-  insn_set(insn, 0x881e0039, 0x2ba94039, 0x012A8972, 0x80129f5a, 0x20018a1a, 0x00698852);
+  /*
+   * strb w8, [x20, #7]   | ldrb w11, [x9, #0x2a]
+   * movk w1, #0x4950     | csinv w0, w20, wzr, ne 
+   * csel w0, w9, w10, eq | mov w0, #0x4348
+   */
 
+  insn_set(insn, 0x881e0039, 0x2ba94039, 0x012a8972, 0x80129f5a, 0x20018a1a, 0x00698852);
+
+  // RETAB | RET
   insn = locate_func(ibot, (detect_pac(ibot, length) ? 0xff0f5fd6 : 0xc0035fd6), insn, length);
 
   if (insn == 0) return -1;
