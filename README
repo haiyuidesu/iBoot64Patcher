@@ -1,0 +1,19 @@
+iBoot64Patcher
+
+> Patch the iBoot64 with generic patches.
+
+I. Requierements
+	1. macOS/Linux,
+	2. basic compilation tools,
+	3. decrypted 64bit iBoot (iOS 11 - 14).
+
+II. Usage
+	$ iBoot64Patcher [--patch] <in> <out>
+	   -p, --patch	apply the generics patches.
+
+	$ iBoot64Patcher -p iBoot.RELEASE.bin iBoot.RELEASE.pwn
+
+III. Notes
+	> I used some technics of @dayt0n kairos project and @xerub xref64 function as well,
+	> It can be turned into a full iBoot patcher, but kairos is a way better (mine can be used for tests purposes),
+	> This 'project' was only made because of my dumb curiosity (if I could patch the iBoot64 using iBoot64Finder code).
