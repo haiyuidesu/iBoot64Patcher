@@ -5,7 +5,7 @@ iBoot64Patcher
 I. Requierements
 	1. macOS/Linux,
 	2. basic compilation tools,
-	3. decrypted 64bit iBoot (iOS 11 - 14).
+	3. decrypted 64bit iBoot.
 
 II. Usage
 	$ iBoot64Patcher [--patch] <in> <out>
