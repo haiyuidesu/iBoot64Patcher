@@ -120,7 +120,9 @@ uint64_t locate_func(void *ibot, uint32_t insn, uint32_t _insn, unsigned int len
 uint64_t rmv_signature_check(void *ibot, unsigned int length) {
   printf("\n[%s]: removing signatures checks...\n", __func__);
 
-  uint64_t insn = 0;
+  uint64_t insn = 0, ret = 0;
+
+  ret = detect_pac(ibot, length) ? 0xff0f5fd6 : 0xc0035fd6; // RETAB | RET
 
   /*
    * strb w8, [x20, #7]   | ldrb w11, [x9, #0x2a]
@@ -130,8 +132,7 @@ uint64_t rmv_signature_check(void *ibot, unsigned int length) {
 
   insn_set(insn, 0x881e0039, 0x2ba94039, 0x012a8972, 0x80129f5a, 0x20018a1a, 0x00698852);
 
-  // RETAB | RET
-  insn = locate_func(ibot, (detect_pac(ibot, length) ? 0xff0f5fd6 : 0xc0035fd6), insn, length);
+  insn = locate_func(ibot, ret, insn, length);
 
   if (insn == 0) return -1;
 
@@ -141,7 +142,7 @@ uint64_t rmv_signature_check(void *ibot, unsigned int length) {
 
   printf("[%s]: patched to MOV x0, #0 insn = 0x%llx\n", __func__, insn + base);
 
-  *(uint32_t *)(ibot + insn + 0x4) = bswap32(0xc0035fd6);
+  *(uint32_t *)(ibot + insn + 0x4) = bswap32(ret);
 
   printf("[%s]: patched to RET insn = 0x%llx\n", __func__, (insn + 0x4) + base);
 
