@@ -5,11 +5,12 @@
 #include <string.h>
 #include <stdbool.h>
 
-uint64_t base = 0, version = 0;
+uint64_t base = 0, version = 0, paced = 0;
 
 #define bswap32(x) __builtin_bswap32(x)
 
 #define hex_set(vers, hex1, hex2) ((vers > version) ? hex1 : hex2)
+#define pac_set(vers, hex1, hex2) (((version == vers) && paced) ? hex1 : hex2)
 
 uint64_t xref64(const uint8_t *ibot, uint64_t start, uint64_t end, uint64_t what) {
   uint64_t i;
@@ -21,7 +22,7 @@ uint64_t xref64(const uint8_t *ibot, uint64_t start, uint64_t end, uint64_t what
 
   for (i = start & ~3; i < end; i += 4) {
     uint32_t op = * (uint32_t * )(ibot + i);
-    unsigned reg = op & 0x1F;
+    unsigned reg = op & 0x1f;
 
     // iOS 8+
     if ((op & 0x9f000000) == 0x10000000) {
@@ -47,11 +48,11 @@ uint64_t xref64(const uint8_t *ibot, uint64_t start, uint64_t end, uint64_t what
   return 0;
 }
 
-uint64_t find_bl_insn(void *ibot, uint64_t xref) {
-  for (int i = 0; i < 2; i++) {
+uint64_t find_bl_insn(void *ibot, uint64_t xref, int bl) {
+  for (int i = 0; i < bl; i++) {
     xref += 4;
 
-    while ((*(uint32_t *)(ibot + xref) >> 26) != 0x25) xref += 0x4;
+    while ((*(uint32_t *)(ibot + xref) >> 0x1a) != 0x25) xref += 0x4;
   }
 
   return xref;
@@ -94,9 +95,9 @@ void *memdata(void *ibot, uint64_t data, int data_size, void *last_ptr, unsigned
 bool detect_pac(void *ibot, unsigned int length) {
   void *pac_search = memdata(ibot, bswap32(0x7f2303d5), 0x4, ibot, length);
 
-  if (pac_search) return true;
+  if (pac_search) return (paced = true);
   
-  return false;
+  return (paced = false);
 }
  
 uint64_t locate_func(void *ibot, uint32_t insn, uint32_t _insn, unsigned int length) {
@@ -162,7 +163,7 @@ uint64_t enable_kernel_debug(void *ibot, unsigned int length) {
 
   if (xref == 0) return -1;
 
-  uint64_t insn = find_bl_insn(ibot, xref);
+  uint64_t insn = find_bl_insn(ibot, xref, pac_set(6723, 0x5, hex_set(6723, 0x2, 0x1)));
 
   if (!insn) return -1;
 
