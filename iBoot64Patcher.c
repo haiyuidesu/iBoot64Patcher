@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-uint64_t base = 0, version = 0, paced = 0, extra = 0;
+uint64_t base = 0, version = 0, paced = 0;
 
 #define bswap32(x) __builtin_bswap32(x)
 
@@ -207,46 +207,6 @@ uint64_t enable_kernel_debug(void *ibot, unsigned int length) {
   return 0;
 }
 
-// This 'patch' is for the 'go' command, nothing amazing at all
-uint64_t allow_any_imagetype(void *ibot, unsigned int length) {
-  printf("\n[%s]: allowing any type of images ('go' command)...\n", __func__);
-
-  uint64_t insn = 0, addr = 0;
-
-  void *bl = memmem(ibot, length, "Memory image not valid", strlen("Memory image not valid"));
-
-  if (bl == NULL) return -1;
-
-  uint64_t xref = xref64(ibot, 0x0, length, bl - ibot);
-
-  if (xref == 0) return -1;
-
-  insn_set(addr, 0x20, 0x2C, 0x2C, 0x30, hex_set(6723, 0x30, 0x34), 0x30);
-
-  insn = ((version < 3406) ? 0x040080d2 : 0x050080d2); // mov x4, #0 | mov x5, #0
-
-  *(uint32_t *)(ibot + xref - addr) = bswap32(insn);
-
-  // iOS 7 use a second time the x4 register so let's clear this !
-  if (version == 1940) *(uint32_t *)(ibot + xref - addr + 0x4) = bswap32(insn); 
-
-  printf("[%s]: patched to MOV %s, #0 insn = 0x%llx\n",
-    __func__, ((version < 3406) ? "x4" : "x5"), (xref + base) - addr);
-
-  insn_set(addr, 0x14, 0x10, 0x24, 0x28, 0xC, 0x28);
-
-  insn = ((version < 3406) ? 0x05008052 : 0x050080d2); // mov w5, #0 | mov w6, #0
-
-  *(uint32_t *)(ibot + xref - addr) = bswap32(insn);
-
-  printf("[%s]: patched to MOV %s, #0 insn = 0x%llx\n",
-    __func__, ((version < 3406) ? "w5" : "w6"), (xref + base) - addr);
-
-  printf("[%s]: successfully allowed any image types ('go' command)!\n", __func__);
-
-  return 0;
-}
-
 uint64_t apply_generic_patches(void *ibot, unsigned int length) {
   // Looking if the iBoot has a kernel load routine
   if (memmem(ibot, length, "__PAGEZERO", strlen("__PAGEZERO"))) {
@@ -262,13 +222,6 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length) {
   } else {
     printf("[%s]: unable to detect any kernel load routine.\n", __func__);
     return -1;
-  }
-
-  if (extra) {
-    if (allow_any_imagetype(ibot, length) != 0) {
-      printf("[%s]: unable to allow any types of images ('go' command).\n", __func__);
-      return -1;
-    }
   }
 
   return 0;
@@ -293,18 +246,6 @@ int main(int argc, char *argv[]) {
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "-p") || !strcmp(argv[i], "--patch")) {
       patch = 1;
-
-      if (argv[i+3] != NULL) {
-        if (!strcmp(argv[i+3], "-e") || !strcmp(argv[i+3], "--extra")) {
-          extra = 1;
-
-          break;
-        } else {
-         printf("warning: unrecognized argument: %s\n", argv[i+3]);
-          goto usagend;
-        }
-      }
-
       break;
     } else {
       printf("warning: unrecognized argument: %s\n", argv[i]);
