@@ -14,6 +14,7 @@ II. Usage
 	$ iBoot64Patcher -p iBoot.RELEASE.bin iBoot.RELEASE.pwn
 
 III. Notes
+	> iBoot64Patcher supports any iBoots (PACed or not) from iOS 7 to iOS 15,
 	> I used some technics of @dayt0n kairos project and @xerub xref64 function as well,
 	> It can be turned into a full iBoot patcher, but kairos is a way better (mine can be used for tests purposes),
 	> This 'project' was only made because of my dumb curiosity (if I could patch the iBoot64 using iBoot64Finder code).

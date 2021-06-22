@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -77,8 +78,8 @@ uint64_t xref64(const uint8_t *ibot, uint64_t start, uint64_t end, uint64_t what
   return 0;
 }
 
-uint64_t find_bl_insn(void *ibot, uint64_t xref, int bl) {
-  for (int i = 0; i < bl; i++) {
+uint64_t find_bl_insn(void *ibot, uint64_t xref, int bl_to_count) {
+  for (int i = 0; i < bl_to_count; i++) {
     xref += 4;
 
     while ((*(uint32_t *)(ibot + xref) >> 0x1a) != 0x25) xref += 0x4;
@@ -88,13 +89,14 @@ uint64_t find_bl_insn(void *ibot, uint64_t xref, int bl) {
 }
 
 /* iBoot64Finder */
-#define insn_set(x, v1, v2, v3, v4, v5, v6) \
-if      (version == 1940) x = v1; \
-else if (version == 2261) x = v2; \
-else if (version == 2817) x = v3; \
-else if (version == 3406) x = v4; \
-else if (version >= 5540) x = v5; \
-else                      x = v6;
+#define insn_set(x, v1, v2, v3, v4, v5, v6, v7) \
+if      (version == 1940) x = v1; \ // iOS 7
+else if (version == 2261) x = v2; \ // iOS 8
+else if (version == 2817) x = v3; \ // iOS 9
+else if (version == 3406) x = v4; \ // iOS 10
+else if (version >= 6723) x = v5; \ // iOS 14+
+else if (version >= 5540) x = v6; \ // iOS 13+
+else                      x = v7;   // iOS 10+
 
 void *find_insn_before_ptr(void *ptr, uint32_t search, int size) {
   int ct = 0;
@@ -157,10 +159,11 @@ uint64_t rmv_signature_check(void *ibot, unsigned int length) {
   /*
    * strb w8, [x20, #7]   | ldrb w11, [x9, #0x2a]
    * movk w1, #0x4950     | csinv w0, w20, wzr, ne 
-   * csel w0, w9, w10, eq | mov w0, #0x4348
+   * csel w0, w9, w10, eq | movk w9, #0x4004, lsl #16
+   * mov w0, #0x4348
    */
 
-  insn_set(insn, 0x881e0039, 0x2ba94039, 0x012a8972, 0x80129f5a, 0x20018a1a, 0x00698852);
+  insn_set(insn, 0x881e0039, 0x2ba94039, 0x012a8972, 0x80129f5a, 0x8900a872, 0x20018a1a, 0x00698852);
 
   insn = locate_func(ibot, ret, insn, length);
 
@@ -192,7 +195,7 @@ uint64_t enable_kernel_debug(void *ibot, unsigned int length) {
 
   if (xref == 0) return -1;
 
-  uint64_t insn = find_bl_insn(ibot, xref, pac_set(6723, 0x5, hex_set(6723, 0x2, 0x1)));
+  uint64_t insn = find_bl_insn(ibot, xref, pac_set(6723, 0x5, 0x2));
 
   if (!insn) return -1;
 
@@ -232,7 +235,6 @@ void usage(char *owo[]) {
   ibot = strrchr(owo[0], '/');
   printf("usage: %s [-p] <in> <out> [-e]\n", (ibot ? ibot + 1 : owo[0]));
   printf("\t-p, --patch\tapply the generics patches.\n");
-  printf("\t-e, --extra\tapply extra patches (test only).\n");
   exit(1);
 }
 
@@ -275,7 +277,9 @@ int main(int argc, char *argv[]) {
 
     fclose(fd);
 
-    printf("[%s]: detected iBoot-%s!\n", __func__, ibot + 0x286);
+    fflush(stdout);
+
+    printf("[%s]: detected iBoot-%s!\n", __func__, (char *)ibot + 0x286);
 
     version = atoi(ibot + 0x286);
 
