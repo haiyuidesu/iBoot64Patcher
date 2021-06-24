@@ -89,14 +89,12 @@ uint64_t find_bl_insn(void *ibot, uint64_t xref, int bl_to_count) {
 }
 
 /* iBoot64Finder */
-#define insn_set(x, v1, v2, v3, v4, v5, v6, v7) \
-if      (version == 1940) x = v1; \ // iOS 7
-else if (version == 2261) x = v2; \ // iOS 8
-else if (version == 2817) x = v3; \ // iOS 9
-else if (version == 3406) x = v4; \ // iOS 10
-else if (version >= 6723) x = v5; \ // iOS 14+
-else if (version >= 5540) x = v6; \ // iOS 13+
-else                      x = v7;   // iOS 10+
+#define insn_set(x, v1, v2, v3, v4, v5) \
+if      (version == 1940) x = v1; \
+else if (version == 2261) x = v2; \
+else if (version == 2817) x = v3; \
+else if (version == 3406) x = v4; \
+else                      x = v5;
 
 void *find_insn_before_ptr(void *ptr, uint32_t search, int size) {
   int ct = 0;
@@ -139,7 +137,7 @@ uint64_t locate_func(void *ibot, uint32_t insn, uint32_t _insn, unsigned int len
   while (ibot_loop > 0) {
     ibot_loop = memdata(ibot, bswap32(insn), 0x4, ibot_loop, length);
     
-    if (ibot_loop && find_insn_before_ptr(ibot_loop, bswap32(_insn), 0x200)) {
+    if (ibot_loop && find_insn_before_ptr(ibot_loop, bswap32(_insn), 0x400)) {
       loc = (uint64_t)((uintptr_t)ibot_loop - (uintptr_t)ibot);
  
       return loc;
@@ -159,11 +157,10 @@ uint64_t rmv_signature_check(void *ibot, unsigned int length) {
   /*
    * strb w8, [x20, #7]   | ldrb w11, [x9, #0x2a]
    * movk w1, #0x4950     | csinv w0, w20, wzr, ne 
-   * csel w0, w9, w10, eq | movk w9, #0x4004, lsl #16
-   * mov w0, #0x4348
+   * movk w0, #0x4353, lsl #16
    */
 
-  insn_set(insn, 0x881e0039, 0x2ba94039, 0x012a8972, 0x80129f5a, 0x8900a872, 0x20018a1a, 0x00698852);
+  insn_set(insn, 0x881e0039, 0x2ba94039, 0x012a8972, 0x80129f5a, 0x606aa872);
 
   insn = locate_func(ibot, ret, insn, length);
 
