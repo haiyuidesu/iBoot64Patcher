@@ -6,9 +6,9 @@
 #include <string.h>
 #include <stdbool.h>
 
-uint64_t base = 0, version = 0, paced = 0;
-
 #define bswap32(x) __builtin_bswap32(x)
+
+uint64_t base = 0, version = 0, paced = 0, extra = 0;
 
 #define hex_set(vers, hex1, hex2) ((vers > version) ? hex1 : hex2)
 #define pac_set(vers, hex1, hex2) (((version == vers) && paced) ? hex1 : hex2)
@@ -166,7 +166,7 @@ uint64_t rmv_signature_check(void *ibot, unsigned int length) {
 
   if (insn == 0) return -1;
 
-  printf("[%s]: _image4_validate_property_cb_interposer RET = 0x%llx\n", __func__, insn + base);
+  printf("[%s]: found '_image4_validate_property_cb_interposer' RET\n", __func__);
 
   *(uint32_t *)(ibot + insn) = bswap32(0x000080d2); // mov x0, #0
 
@@ -207,6 +207,47 @@ uint64_t enable_kernel_debug(void *ibot, unsigned int length) {
   return 0;
 }
 
+// This 'patch' is for the 'go' command that allow to load any image type
+uint64_t allow_any_imagetype(void *ibot, unsigned int length) {
+  char *str = "cebilefciladrmmhtreptlhptmbr";
+
+  printf("\n[%s]: allowing to load any type of images...\n", __func__);
+
+  if (version < 3406) str = "cebilefctmbrtlhptreprmmh";
+
+  void *where = memmem(ibot, length, str, strlen(str));
+
+  if (where == NULL) return -1;
+
+  uint64_t xref = xref64(ibot, 0x0, length, where - ibot);
+
+  if (xref == 0) return -1;
+
+  uint64_t insn = ((version < 3406) ? 0x040080d2 : 0x050080d2); // mov x4, #0 | mov x5, #0
+
+  *(uint32_t *)(ibot + xref) = bswap32(insn);
+
+  printf("[%s]: patched to MOV %s, #0 insn = 0x%llx\n",
+    __func__, ((version < 3406) ? "x4" : "x5"), xref + base);
+
+  // is it okay to patch the count?
+
+  insn = hex_set(5540, hex_set(3406, 0xe5071f32, 0xe60b0032), 0xe6008052);
+
+  where = memdata(ibot, bswap32(insn), 0x4, ibot, length);
+
+  insn = (version < 3406) ? 0x05008052 : 0x06008052; // mov w5, #0 | mov w6, #0
+
+  *(uint32_t *)(where) = bswap32(insn);
+
+  printf("[%s]: patched to MOV %s, #0 insn = 0x%llx\n",
+    __func__, ((version < 3406) ? "w5" : "w6"), base + (where - ibot));
+
+  printf("[%s]: successfully allowed to load any image types!\n", __func__);
+
+  return 0;
+}
+
 uint64_t apply_generic_patches(void *ibot, unsigned int length) {
   // Looking if the iBoot has a kernel load routine
   if (memmem(ibot, length, "__PAGEZERO", strlen("__PAGEZERO"))) {
@@ -218,6 +259,13 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length) {
     if (enable_kernel_debug(ibot, length) != 0) {
       printf("[%s]: unable to enable kernel debugging.\n", __func__);
       return -1;
+    }
+
+    if (extra) {
+      if (allow_any_imagetype(ibot, length) != 0) {
+        printf("[%s]: unable to allow to load any image types.\n", __func__);
+        return -1;
+      }
     }
   } else {
     printf("[%s]: unable to detect any kernel load routine.\n", __func__);
@@ -231,7 +279,8 @@ void usage(char *owo[]) {
   char *ibot = NULL;
   ibot = strrchr(owo[0], '/');
   printf("usage: %s [-p] <in> <out> [-e]\n", (ibot ? ibot + 1 : owo[0]));
-  printf("\t-p, --patch\tapply the generics patches.\n");
+  printf("\t-p\tapply the generics patches,\n");
+  printf("\t-e\tapply the extra patches.\n");
   exit(1);
 }
 
@@ -240,16 +289,32 @@ int main(int argc, char *argv[]) {
   void *ibot = NULL;
   unsigned int length = 0, patch = 0;
 
-  if (argc < 4) goto usagend;
+  if (argc < 4) usage(argv);
 
-  for (int i = 1; i < argc; i++) {
-    if (!strcmp(argv[i], "-p") || !strcmp(argv[i], "--patch")) {
-      patch = 1;
-      break;
-    } else {
-      printf("warning: unrecognized argument: %s\n", argv[i]);
-      goto usagend;
+  int arg_counter = argc - 1;
+
+  while (arg_counter) {
+    if (*argv[arg_counter] == '-') {
+
+      char arg = *(argv[arg_counter] + 1);
+
+      switch (arg) {
+        case 'p':
+          patch = 1;
+          break;
+
+        case 'e':
+          patch = 1;
+          extra = 1;
+          break;
+
+        default:
+          printf("warning: unrecognized argument: %s\n", argv[arg_counter]);
+          usage(argv);
+      }
     }
+
+    arg_counter--;
   }
 
   if (patch) {
@@ -292,7 +357,10 @@ int main(int argc, char *argv[]) {
 
     if (!fd) { 
       printf("\n[%s]: unable to open %s!\n", __func__, argv[3]);
-      goto end; 
+
+      free(ibot);
+
+      return -1;
     }
 
     printf("\n[%s]: writing %s...\n", __func__, argv[3]);
@@ -307,11 +375,4 @@ int main(int argc, char *argv[]) {
   }
 
   return 0;
-
-  usagend:
-  usage(argv);
-
-  end:
-  free(ibot);
-  return -1;
 }

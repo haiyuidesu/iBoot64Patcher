@@ -1,10 +1,12 @@
 .PHONY: all install clean
 
-CC          = clang
+CC          = gcc
 TARGET      = iBoot64Patcher
 INSTALL     = /usr/local/bin
+
 uname_s     = $(shell uname -s)
-CFLAGS      = -DDEBUG -O3 -c -I. -g -Wall -Wextra -o
+
+CFLAGS      = -DDEBUG -O3 -c -I. -g3 -Wall -Wextra -o
 
 OBJECTS     = $(TARGET).o
 
@@ -23,8 +25,9 @@ $(TARGET): $(OBJECTS)
 	@echo "OK: built $(TARGET) for $(uname_s)"
 
 install: $(TARGET)
-	cp $(TARGET) $(INSTALL)
+	@install -v $(TARGET) $(INSTALL)
+	@echo "OK: installed $(TARGET)."
 
 clean:
 	@rm -f *.o $(TARGET)
-	@echo "[OK]: cleaned some files"
+	@echo "OK: cleaned some files"
