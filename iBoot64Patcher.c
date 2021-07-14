@@ -95,35 +95,11 @@ uint64_t insn_is_bl(void *ibot, uint64_t xref, int bl_to_count) {
   return xref;
 }
 
-uint64_t insn_is_cbz(void *ibot, uint64_t xref, int bl_to_count) {
-  for (int i = 0; i < bl_to_count; i++) {
-    xref -= 0x4;
-
-    while ((*(uint32_t *)(ibot + xref) & 0x7e000000) != 0x34000000) xref -= 0x4;
-  }
-
-  return xref;
-}
-
-uint64_t insn_is_adr_p(void *ibot, uint64_t xref, int x) {
+uint64_t find_any_insn(void *ibot, uint64_t xref, int x, int add, uint64_t mask, uint64_t value) {
   for (int i = 0; i < x; i++) {
-    xref -= 0x4;
+    xref += add;
 
-    while ((*(uint32_t *)(ibot + xref) & 0x1f000000) != 0x10000000) {
-      xref -= 0x4;
-    }
-  }
-
-  return xref;
-}
-
-uint64_t insn_is_csel(void *ibot, uint64_t xref, int x) {
-  for (int i = 0; i < x; i++) {
-    xref += 0x4;
-
-    while ((*(uint32_t *)(ibot + xref) & 0x1fe00000) != 0x1a800000) {
-      xref += 0x4;
-    }
+    while ((*(uint32_t *)(ibot + xref) & mask) != value) xref += add;
   }
 
   return xref;
@@ -292,6 +268,89 @@ uint64_t allow_any_imagetype(void *ibot, unsigned int length) {
   return 0;
 }
 
+// this patch will prevent kaslr to have a random slide (untested!)
+// in fact, I am not even sure about what I did so if it does not work, please open an issue
+// also, I only managed to figure it out for iOS 12 - 13 (and I am absolutely not sure about iOS 13)...
+uint64_t disable_kaslr(void *ibot, unsigned int length) {
+  uint32_t opcode = 0;
+
+  if (version > 5540) return 0;
+
+  if (version < 4513) return 0;
+
+  printf("\n[%s]: patching the kaslr slide...\n", __func__);
+
+  uint64_t where = locate_func(ibot, 0xa0008012, 0x081c0012, length);
+
+  if (where == 0) return -1;
+
+  printf("[%s]: found the load_kernelcache function!\n", __func__);
+
+  if (version == 4513) {
+    where = find_any_insn(ibot, where, 1, 0x4, 0xff000010, 0x54000000); // find b.conditionnal insn
+
+    where += 0x10;
+
+    printf("[%s]: found the AND insn = 0x%llx\n", __func__, base + where);
+  } else {
+    where = find_any_insn(ibot, where, 1, 0x4, 0x1fe00000, 0x1a800000); // find csel insn
+
+    printf("[%s]: found the CSEL insn = 0x%llx\n", __func__, base + where);
+  }
+
+  unsigned rd = *(uint32_t *)(ibot + where) & 0x1f;
+
+  opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // should be x8
+
+  *(uint32_t *)(ibot + where) = opcode;
+
+  printf("[%s]: patched to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where);
+
+  opcode = 0;
+
+  if (version == 4513) {
+    *(uint32_t *)(ibot + where + 0x4) = bswap32(0x1f2003d5);
+
+    rd = *(uint32_t *)(ibot + where + 0x8) & 0x1f;
+
+    opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // should be x20
+
+    *(uint32_t *)(ibot + where + 0x8) = opcode;
+
+    printf("[%s]: patched to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where + 0x8);
+
+    *(uint32_t *)(ibot + where + 0xC) = bswap32(0x1f2003d5);
+
+    *(uint32_t *)(ibot + where + 0x10) = bswap32(0x1f2003d5);
+
+    printf("[%s]: NOPed the few next other instructions\n", __func__);
+  } else {
+    rd = *(uint32_t *)(ibot + where + 0x4) & 0x1f;
+
+    opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // should be x9
+
+    *(uint32_t *)(ibot + where + 0x4) = opcode;
+
+    printf("[%s]: patched to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where + 0x4);
+
+    *(uint32_t *)(ibot + where + 0x8) = bswap32(0x1f2003d5);
+
+    *(uint32_t *)(ibot + where + 0xC) = opcode; // it should be the same one...
+
+    printf("[%s]: patched to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where + 0xC);
+
+    *(uint32_t *)(ibot + where + 0x10) = bswap32(0x1f2003d5);
+
+    *(uint32_t *)(ibot + where + 0x14) = bswap32(0x1f2003d5);
+
+    printf("[%s]: NOPed the few next other instructions\n", __func__);
+  }
+
+  printf("[%s]: successfully patched kaslr!\n", __func__);
+
+  return 0;
+}
+
 // This one is clearly copied from kairos since I was sick of using it every time I needed to change the boot-args
 // I am not sure about the bootloaders older than iOS 10 but whatever...
 uint64_t set_custom_bootargs(void *ibot, unsigned int length, char *bootargs) {
@@ -307,17 +366,19 @@ uint64_t set_custom_bootargs(void *ibot, unsigned int length, char *bootargs) {
 
   if (version >= 2261) str = "rd=md0 nand-enable-reformat=1 -progress";
 
-  if (version > 3406) str = "rd=md0 -progress -restore";
-
   if (version >= 6723) str = "rd=md0";
 
   void *current = memmem(ibot, length, str, strlen(str));
 
-  if (current == NULL) return -1;
+  if (current == NULL) {
+    current = memmem(ibot, length, "rd=md0 -progress -restore", strlen("rd=md0 -progress -restore"));
+
+    if (current == NULL) return -1; // it was the last chance
+  }
 
   uint64_t where = xref64(ibot, 0x0, length, current - ibot);
 
-  if (version < 2261) where = insn_is_adr_p(ibot, where, 3);
+  if (version < 2261) where = find_any_insn(ibot, where, 3, -0x4, 0x1f000000, 0x10000000); // find adrp or adr insn
 
   printf("[%s]: found boot-args string = 0x%llx\n", __func__, base + where);
 
@@ -349,7 +410,7 @@ uint64_t set_custom_bootargs(void *ibot, unsigned int length, char *bootargs) {
   }*/
 
   if (version < 6723) {
-    what = insn_is_csel(ibot, where, 1);
+    what = find_any_insn(ibot, where, 1, 0x4, 0x1fe00000, 0x1a800000); // find csel insn
 
     _rd = *(uint32_t *)(ibot + what) & 0x1f;
 
@@ -363,7 +424,7 @@ uint64_t set_custom_bootargs(void *ibot, unsigned int length, char *bootargs) {
   }
 
   if (version >= 3406) {
-    what = insn_is_cbz(ibot, where, 1);
+    what = find_any_insn(ibot, where, 1, -0x4, 0x7e000000, 0x34000000); // find cbz insn
 
     printf("[%s]: found the CBZ instruction = 0x%llx\n", __func__, base + what);
 
@@ -371,11 +432,11 @@ uint64_t set_custom_bootargs(void *ibot, unsigned int length, char *bootargs) {
 
     diff = ((uint64_t)new_bootarg_addr - (uint64_t)ibot) - (what + offset); // pointed address
 
-    _rd = *(uint32_t *)(ibot + what) & 0x1f;
+    _rd = *(uint32_t *)(ibot + what + offset) & 0x1f;
 
     opcode  = 0;
 
-    opcode |= (((diff >> 0) % (1 << (1 + 1))) << 29 | 0x10 << 24 || ((diff >> 2) % (1 << (20 - 2 + 1))) << 5 | _rd % (1 << 5));
+    opcode |= (((diff >> 2) % (1 << (20 - 2 + 1))) << 5 | ((diff >> 0) % (1 << (1 - 0 + 1))) << 29 | 0x10 << 24 | _rd % (1 << 5));
 
     *(uint32_t *)(ibot + what + offset) = opcode; // adr <rd>, #imm
 
@@ -402,16 +463,21 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length, char *bootargs) 
       return -1;
     }
 
+    if (patch_boot_arg) {
+      if (set_custom_bootargs(ibot, length, bootargs) != 0) {
+        printf("[%s]: unable to patch the boot-args.\n", __func__);
+        return -1;
+      }
+    }
+
     if (extra) {
       if (allow_any_imagetype(ibot, length) != 0) {
         printf("[%s]: unable to allow to load any image types.\n", __func__);
         return -1;
       }
-    }
 
-    if (patch_boot_arg) {
-      if (set_custom_bootargs(ibot, length, bootargs) != 0) {
-        printf("[%s]: unable to patch the boot-args.\n", __func__);
+      if (disable_kaslr(ibot, length) != 0) {
+        printf("[%s]: unable to patch kaslr slide.\n", __func__);
         return -1;
       }
     }
