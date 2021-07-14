@@ -6,12 +6,17 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define bswap32(x) __builtin_bswap32(x)
+int extra = 0, patch_boot_arg = 0;
 
-uint64_t base = 0, version = 0, paced = 0, extra = 0;
+uint64_t base = 0, version = 0, paced = 0;
 
 #define hex_set(vers, hex1, hex2) ((vers > version) ? hex1 : hex2)
+
 #define pac_set(vers, hex1, hex2) (((version == vers) && paced) ? hex1 : hex2)
+
+#define bswap32(x) __builtin_bswap32(x)
+
+/*************** patchfinder64 ***************/
 
 uint64_t xref64(const uint8_t *ibot, uint64_t start, uint64_t end, uint64_t what) {
   uint64_t i;
@@ -78,9 +83,11 @@ uint64_t xref64(const uint8_t *ibot, uint64_t start, uint64_t end, uint64_t what
   return 0;
 }
 
-uint64_t find_bl_insn(void *ibot, uint64_t xref, int bl_to_count) {
+/*************** eydis ***************/
+
+uint64_t insn_is_bl(void *ibot, uint64_t xref, int bl_to_count) {
   for (int i = 0; i < bl_to_count; i++) {
-    xref += 4;
+    xref += 0x4;
 
     while ((*(uint32_t *)(ibot + xref) >> 0x1a) != 0x25) xref += 0x4;
   }
@@ -88,7 +95,42 @@ uint64_t find_bl_insn(void *ibot, uint64_t xref, int bl_to_count) {
   return xref;
 }
 
-/* iBoot64Finder */
+uint64_t insn_is_cbz(void *ibot, uint64_t xref, int bl_to_count) {
+  for (int i = 0; i < bl_to_count; i++) {
+    xref -= 0x4;
+
+    while ((*(uint32_t *)(ibot + xref) & 0x7e000000) != 0x34000000) xref -= 0x4;
+  }
+
+  return xref;
+}
+
+uint64_t insn_is_adr_p(void *ibot, uint64_t xref, int x) {
+  for (int i = 0; i < x; i++) {
+    xref -= 0x4;
+
+    while ((*(uint32_t *)(ibot + xref) & 0x1f000000) != 0x10000000) {
+      xref -= 0x4;
+    }
+  }
+
+  return xref;
+}
+
+uint64_t insn_is_csel(void *ibot, uint64_t xref, int x) {
+  for (int i = 0; i < x; i++) {
+    xref += 0x4;
+
+    while ((*(uint32_t *)(ibot + xref) & 0x1fe00000) != 0x1a800000) {
+      xref += 0x4;
+    }
+  }
+
+  return xref;
+}
+
+/*************** iBoot64Finder ***************/
+
 #define insn_set(x, v1, v2, v3, v4, v5) \
 if      (version == 1940) x = v1; \
 else if (version == 2261) x = v2; \
@@ -147,6 +189,8 @@ uint64_t locate_func(void *ibot, uint32_t insn, uint32_t _insn, unsigned int len
   return 0;
 }
 
+/*************** patchs ***************/
+
 uint64_t rmv_signature_check(void *ibot, unsigned int length) {
   printf("\n[%s]: removing signatures checks...\n", __func__);
 
@@ -192,7 +236,7 @@ uint64_t enable_kernel_debug(void *ibot, unsigned int length) {
 
   if (xref == 0) return -1;
 
-  uint64_t insn = find_bl_insn(ibot, xref, pac_set(6723, 0x5, 0x2));
+  uint64_t insn = insn_is_bl(ibot, xref, pac_set(6723, 0x5, 0x2));
 
   if (!insn) return -1;
 
@@ -248,7 +292,104 @@ uint64_t allow_any_imagetype(void *ibot, unsigned int length) {
   return 0;
 }
 
-uint64_t apply_generic_patches(void *ibot, unsigned int length) {
+// This one is clearly copied from kairos since I was sick of using it every time I needed to change the boot-args
+// I am not sure about the bootloaders older than iOS 10 but whatever...
+uint64_t set_custom_bootargs(void *ibot, unsigned int length, char *bootargs) {
+  char *str = NULL;
+  unsigned _rd = 0;
+  uint64_t what = 0;
+  uint32_t opcode = 0;
+  char zeros[270] = { 0 };
+
+  printf("\n[%s]: setting \"%s\" boot-args...\n", __func__, bootargs);
+
+  if (version == 1940) str = "is-tethered";
+
+  if (version >= 2261) str = "rd=md0 nand-enable-reformat=1 -progress";
+
+  if (version > 3406) str = "rd=md0 -progress -restore";
+
+  if (version >= 6723) str = "rd=md0";
+
+  void *current = memmem(ibot, length, str, strlen(str));
+
+  if (current == NULL) return -1;
+
+  uint64_t where = xref64(ibot, 0x0, length, current - ibot);
+
+  if (version < 2261) where = insn_is_adr_p(ibot, where, 3);
+
+  printf("[%s]: found boot-args string = 0x%llx\n", __func__, base + where);
+
+  void *new_bootarg_addr = memmem(ibot, length, zeros, 270);
+
+  if (new_bootarg_addr == NULL) return -1;
+
+  new_bootarg_addr += 0x10;
+
+  memset(new_bootarg_addr, 0x0, 270);
+
+  unsigned rd = *(uint32_t *)(ibot + where) & 0x1f;
+
+  uint64_t diff = ((uint64_t)new_bootarg_addr - (uint64_t)ibot) - where;
+
+  opcode |= (diff % (1 << 2) << 29 | 0x10 << 24 | ((diff >> 2) % (1 << (20 - 2 + 1))) << 5 | rd % (1 << 5));
+
+  *(uint32_t *)(ibot + where) = opcode; // adr <rd>, #imm
+
+  strcpy(new_bootarg_addr, bootargs);
+
+  printf("[%s]: patched the ADR instruction = 0x%llx\n", __func__, base + where);
+
+  /*if (version < 2261) {
+    opcode = 0;
+    // this one is mostly for iOS 7 but I do not even know if this will be really useful (plus it is not even complete)
+    opcode |= (0x11000000 | 0x1 << 31 | 0 << 30 | 0 << 29 | 0 << 22 | (??? & 0xfff) << 10 | (rd & 0x1f) << 5 | rd % (1 << 5));
+    *(uint32_t *)(ibot + where + 0x4) = opcode; // add <rd>, <rn>, #imm
+  }*/
+
+  if (version < 6723) {
+    what = insn_is_csel(ibot, where, 1);
+
+    _rd = *(uint32_t *)(ibot + what) & 0x1f;
+
+    opcode = 0;
+
+    opcode |= (0x1 << 31 | 0x150 << 21 | (0 & 0x3f) << 10 | (-1 & 0x1f) << 5 | (rd & 0x1f) << 16 | _rd % (1 << 5));
+
+    *(uint32_t *)(ibot + what) = opcode; // mov <rd>, <rd_from_previous_insn>
+
+    printf("[%s]: moved from CSEL instruction (0x%llx) to MOV x%u, x%u\n", __func__, base + what, _rd, rd);
+  }
+
+  if (version >= 3406) {
+    what = insn_is_cbz(ibot, where, 1);
+
+    printf("[%s]: found the CBZ instruction = 0x%llx\n", __func__, base + what);
+
+    int64_t offset = ((int64_t)((*(uint32_t *)(ibot + what) >> 5) & 0x7ffff) << 45) >> 43;
+
+    diff = ((uint64_t)new_bootarg_addr - (uint64_t)ibot) - (what + offset); // pointed address
+
+    _rd = *(uint32_t *)(ibot + what) & 0x1f;
+
+    opcode  = 0;
+
+    opcode |= (((diff >> 0) % (1 << (1 + 1))) << 29 | 0x10 << 24 || ((diff >> 2) % (1 << (20 - 2 + 1))) << 5 | _rd % (1 << 5));
+
+    *(uint32_t *)(ibot + what + offset) = opcode; // adr <rd>, #imm
+
+    printf("[%s]: replaced the ADR instruction pointing address = 0x%llx\n", __func__, base + what + offset);
+  }
+
+  printf("[%s]: successfully set new bootargs!\n", __func__);
+
+  return 0;
+}
+
+/* main */
+
+uint64_t apply_generic_patches(void *ibot, unsigned int length, char *bootargs) {
   // Looking if the iBoot has a kernel load routine
   if (memmem(ibot, length, "__PAGEZERO", strlen("__PAGEZERO"))) {
     if (rmv_signature_check(ibot, length) != 0) {
@@ -267,6 +408,13 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length) {
         return -1;
       }
     }
+
+    if (patch_boot_arg) {
+      if (set_custom_bootargs(ibot, length, bootargs) != 0) {
+        printf("[%s]: unable to patch the boot-args.\n", __func__);
+        return -1;
+      }
+    }
   } else {
     printf("[%s]: unable to detect any kernel load routine.\n", __func__);
     return -1;
@@ -278,15 +426,17 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length) {
 void usage(char *owo[]) {
   char *ibot = NULL;
   ibot = strrchr(owo[0], '/');
-  printf("usage: %s [-p] <in> <out> [-e]\n", (ibot ? ibot + 1 : owo[0]));
+  printf("usage: %s [-p] <in> <out> [-e] [-b <boot-args>]\n", (ibot ? ibot + 1 : owo[0]));
   printf("\t-p\tapply the generics patches,\n");
-  printf("\t-e\tapply the extra patches.\n");
+  printf("\t-e\tapply the extra patches,\n");
+  printf("\t-b\tapply custom boot-args.\n");
   exit(1);
 }
 
 int main(int argc, char *argv[]) {  
   FILE *fd = NULL;
   void *ibot = NULL;
+  char *bootargs = NULL;
   unsigned int length = 0, patch = 0;
 
   if (argc < 4) usage(argv);
@@ -306,6 +456,12 @@ int main(int argc, char *argv[]) {
         case 'e':
           patch = 1;
           extra = 1;
+          break;
+
+        case 'b':
+          patch = 1;
+          patch_boot_arg = 1;
+          bootargs = argv[arg_counter + 1];
           break;
 
         default:
@@ -351,7 +507,7 @@ int main(int argc, char *argv[]) {
 
     printf("[%s]: applying generic iBoot patches...\n", __func__);
 
-    if (apply_generic_patches(ibot, length) != 0) return -1;
+    if (apply_generic_patches(ibot, length, bootargs) != 0) return -1;
 
     fd = fopen(argv[3], "wb+");
 
