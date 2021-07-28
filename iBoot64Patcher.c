@@ -268,35 +268,23 @@ uint64_t allow_any_imagetype(void *ibot, unsigned int length) {
   return 0;
 }
 
-// this patch will prevent kaslr to have a random slide (untested!)
-// in fact, I am not even sure about what I did so if it does not work, please open an issue
-// also, I only managed to figure it out for iOS 12 - 13 (and I am absolutely not sure about iOS 13)...
+// this patch will prevent kaslr to have a random slide (only for iPhone5S - iOS 12 for the moment though)
+// other device support will come later, more iPhone5S version will be quickly added too :')
 uint64_t disable_kaslr(void *ibot, unsigned int length) {
   uint32_t opcode = 0;
+  unsigned _rd = 0;
 
-  if (version > 5540) return 0;
-
-  if (version < 4513) return 0;
+  if (version != 4513) return 0;
 
   printf("\n[%s]: patching the kaslr slide...\n", __func__);
 
-  uint64_t where = locate_func(ibot, 0xa0008012, 0x081c0012, length);
+  uint64_t where = locate_func(ibot, 0x08fc3f91, 0xa0008012, length);
 
   if (where == 0) return -1;
 
-  printf("[%s]: found the load_kernelcache function!\n", __func__);
+  printf("[%s]: found the 'load_kernelcache()' function!\n", __func__);
 
-  if (version == 4513) {
-    where = find_any_insn(ibot, where, 1, 0x4, 0xff000010, 0x54000000); // find b.conditionnal insn
-
-    where += 0x10;
-
-    printf("[%s]: found the AND insn = 0x%llx\n", __func__, base + where);
-  } else {
-    where = find_any_insn(ibot, where, 1, 0x4, 0x1fe00000, 0x1a800000); // find csel insn
-
-    printf("[%s]: found the CSEL insn = 0x%llx\n", __func__, base + where);
-  }
+  where += 0x8;
 
   unsigned rd = *(uint32_t *)(ibot + where) & 0x1f;
 
@@ -304,49 +292,41 @@ uint64_t disable_kaslr(void *ibot, unsigned int length) {
 
   *(uint32_t *)(ibot + where) = opcode;
 
-  printf("[%s]: patched to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where);
+  printf("[%s]: patched 'slide_virt' to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where);
 
-  opcode = 0;
+  for (int i = 0x4; i != 0x3C; i += 0x4) {
+    if (i == 0x8) {
+      opcode = 0;
 
-  if (version == 4513) {
-    *(uint32_t *)(ibot + where + 0x4) = bswap32(0x1f2003d5);
+      _rd = *(uint32_t *)(ibot + where + i) & 0x1f;
 
-    rd = *(uint32_t *)(ibot + where + 0x8) & 0x1f;
+      opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | _rd % (1 << 5)); // should be x21
 
-    opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // should be x20
+      *(uint32_t *)(ibot + where + i) = opcode;
 
-    *(uint32_t *)(ibot + where + 0x8) = opcode;
+      printf("[%s]: patched 'slide_phys' to MOV x%u, #0x0 = 0x%llx\n", __func__, _rd, base + where + i);
+    } else if (i == 0x1C) {
+      _rd = *(uint32_t *)(ibot + where + i) & 0x1f;
+    } else if (i == 0x28) {
+      opcode = 0;
 
-    printf("[%s]: patched to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where + 0x8);
+      rd = *(uint32_t *)(ibot + where + i) & 0x1f;
 
-    *(uint32_t *)(ibot + where + 0xC) = bswap32(0x1f2003d5);
+      // opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // kaslr_slide = 0x0
 
-    *(uint32_t *)(ibot + where + 0x10) = bswap32(0x1f2003d5);
+      opcode |= (0x1 << 31 | 0x150 << 21 | (0 & 0x3f) << 10 | (-1 & 0x1f) << 5 | (_rd & 0x1f) << 16 | rd % (1 << 5)); // kaslr_slide = 0x1000000
 
-    printf("[%s]: NOPed the few next other instructions\n", __func__);
-  } else {
-    rd = *(uint32_t *)(ibot + where + 0x4) & 0x1f;
+      *(uint32_t *)(ibot + where + i) = opcode;
 
-    opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // should be x9
-
-    *(uint32_t *)(ibot + where + 0x4) = opcode;
-
-    printf("[%s]: patched to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where + 0x4);
-
-    *(uint32_t *)(ibot + where + 0x8) = bswap32(0x1f2003d5);
-
-    *(uint32_t *)(ibot + where + 0xC) = opcode; // it should be the same one...
-
-    printf("[%s]: patched to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where + 0xC);
-
-    *(uint32_t *)(ibot + where + 0x10) = bswap32(0x1f2003d5);
-
-    *(uint32_t *)(ibot + where + 0x14) = bswap32(0x1f2003d5);
-
-    printf("[%s]: NOPed the few next other instructions\n", __func__);
+      printf("[%s]: patched to MOV x%u, x%u = 0x%llx\n", __func__, rd, _rd, base + where + i);
+    } else {
+      *(uint32_t *)(ibot + where + i) = bswap32(0x1f2003d5);
+    }
   }
 
-  printf("[%s]: successfully patched kaslr!\n", __func__);
+  printf("[%s]: NOPed all other instructions.\n", __func__);
+
+  printf("[%s]: successfully patched kaslr slide!\n", __func__);
 
   return 0;
 }
@@ -401,13 +381,6 @@ uint64_t set_custom_bootargs(void *ibot, unsigned int length, char *bootargs) {
   strcpy(new_bootarg_addr, bootargs);
 
   printf("[%s]: patched the ADR instruction = 0x%llx\n", __func__, base + where);
-
-  /*if (version < 2261) {
-    opcode = 0;
-    // this one is mostly for iOS 7 but I do not even know if this will be really useful (plus it is not even complete)
-    opcode |= (0x11000000 | 0x1 << 31 | 0 << 30 | 0 << 29 | 0 << 22 | (??? & 0xfff) << 10 | (rd & 0x1f) << 5 | rd % (1 << 5));
-    *(uint32_t *)(ibot + where + 0x4) = opcode; // add <rd>, <rn>, #imm
-  }*/
 
   if (version < 6723) {
     what = find_any_insn(ibot, where, 1, 0x4, 0x1fe00000, 0x1a800000); // find csel insn
@@ -520,12 +493,10 @@ int main(int argc, char *argv[]) {
           break;
 
         case 'e':
-          patch = 1;
           extra = 1;
           break;
 
         case 'b':
-          patch = 1;
           patch_boot_arg = 1;
           bootargs = argv[arg_counter + 1];
           break;
