@@ -270,7 +270,7 @@ uint64_t allow_any_imagetype(void *ibot, unsigned int length) {
 
 // this patch will prevent kaslr to have a random slide.
 // other device support will come later, more iPhone5S version will be quickly added too :')
-uint64_t disable_kaslr(void *ibot, unsigned int length) {
+uint64_t prevent_kaslr_slide(void *ibot, unsigned int length) {
   uint32_t opcode = 0;
   unsigned _rd = 0, rd = 0;
 
@@ -289,66 +289,36 @@ uint64_t disable_kaslr(void *ibot, unsigned int length) {
   printf("[%s]: found the 'load_kernelcache()' function!\n", __func__);
 
   if (version == 4513) {
-    where = find_any_insn(ibot, where, 2, -0x4, 0x3a000000, 0x28000000);
-
-    where += 0x14; // moving to the 'mov' insn
-
-    rd = *(uint32_t *)(ibot + where) & 0x1f;
-
-    opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // should be x8
-
-    *(uint32_t *)(ibot + where) = opcode;
-
-    printf("[%s]: patched 'slide_virt' to MOV x%u, #0x0 = 0x%llx\n", __func__, rd, base + where);
-
-    for (int i = 0x4; i != 0x40; i += 0x4) {
-      if (i == 0x8) {
-        opcode = 0;
-
-        _rd = *(uint32_t *)(ibot + where + i) & 0x1f;
-
-        opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | _rd % (1 << 5)); // should be x21
-
-        *(uint32_t *)(ibot + where + i) = opcode;
-
-        printf("[%s]: patched 'slide_phys' to MOV x%u, #0x0 = 0x%llx\n", __func__, _rd, base + where + i);
-      } else if (i == 0x1C) {
-        _rd = *(uint32_t *)(ibot + where + i) & 0x1f;
-      } else if (i == 0x28) {
-        opcode = 0;
-
-        rd = *(uint32_t *)(ibot + where + i) & 0x1f;
-
-        // opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // kaslr_slide = 0x0
-
-        opcode |= (0x1 << 31 | 0x150 << 21 | (0 & 0x3f) << 10 | (-1 & 0x1f) << 5 | (_rd & 0x1f) << 16 | rd % (1 << 5)); // kaslr_slide = 0x1000000
-
-        *(uint32_t *)(ibot + where + i) = opcode;
-
-        printf("[%s]: patched 'slide_virt' to MOV x%u, x%u = 0x%llx\n", __func__, rd, _rd, base + where + i);
-      } else {
-        *(uint32_t *)(ibot + where + i) = bswap32(0x1f2003d5);
-      }
-    }
+    where = find_any_insn(ibot, where, 2, -0x4, 0x3a000000, 0x28000000) + 0x14; // moving to the 'mov' insn
   } else {
     where = insn_is_bl(ibot, where, 0x3, -0x4);
+  }
 
-    for (int i = 0; i != 0x24; i += 0x4) {
-      if (i == 0x8) {
-        _rd = *(uint32_t *)(ibot + where + i) & 0x1f;
-      } else if (i == 0x18) {
-        rd = *(uint32_t *)(ibot + where + i) & 0x1f;
+  for (int i = 0x4; i != (version == 4513 ? 0x40 : 0x24); i += 0x4) {
+    if (i == 0x8) {
+      opcode = 0;
 
-        // opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | rd % (1 << 5)); // kaslr_slide = 0x0
+      _rd = *(uint32_t *)(ibot + where + i) & 0x1f;
 
-        opcode |= (0x1 << 31 | 0x150 << 21 | (0 & 0x3f) << 10 | (-1 & 0x1f) << 5 | (_rd & 0x1f) << 16 | rd % (1 << 5)); // kaslr_slide = 0x1000000
+      // you can comment out these three lines to get a slide equal to 0x1000000
 
-        *(uint32_t *)(ibot + where + i) = opcode;
+      opcode |= (0x1 << 31 | 0x294 << 21 | 0x0 << 5 | _rd % (1 << 5)); // should be x21
 
-        printf("[%s]: patched to MOV x%u, x%u = 0x%llx\n", __func__, rd, _rd, base + where + i);
-      } else {
-        *(uint32_t *)(ibot + where + i) = bswap32(0x1f2003d5);
-      }
+      *(uint32_t *)(ibot + where + i) = opcode;
+
+      printf("[%s]: patched 'slide_phys' to MOV x%u, #0x0 = 0x%llx\n", __func__, _rd, base + where + i);
+    } else if (i == (version == 4513 ? 0x28 : 0x18)) {
+      opcode = 0;
+
+      rd = *(uint32_t *)(ibot + where + i) & 0x1f;
+
+      opcode |= (0x1 << 31 | 0x150 << 21 | (0 & 0x3f) << 10 | (-1 & 0x1f) << 5 | (_rd & 0x1f) << 16 | rd % (1 << 5)); // kaslr_slide = 0x0
+
+      *(uint32_t *)(ibot + where + i) = opcode;
+
+      printf("[%s]: patched 'slide_virt' to MOV x%u, x%u = 0x%llx\n", __func__, rd, _rd, base + where + i);
+    } else {
+      *(uint32_t *)(ibot + where + i) = bswap32(0x1f2003d5);
     }
   }
 
@@ -477,7 +447,7 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length, char *bootargs) 
         return -1;
       }
 
-      if (disable_kaslr(ibot, length) != 0) {
+      if (prevent_kaslr_slide(ibot, length) != 0) {
         printf("[%s]: unable to patch kaslr slide.\n", __func__);
         return -1;
       }
