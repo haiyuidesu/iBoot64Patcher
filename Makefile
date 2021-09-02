@@ -6,7 +6,7 @@ INSTALL     = /usr/local/bin
 
 uname_s     = $(shell uname -s)
 
-CFLAGS      = -DDEBUG -O3 -c -I. -g3 -Wall -Wextra -o
+CFLAGS      = -DDEBUG -O3 -c -I. -g3 -Wall -Wextra -Wno-format -o
 
 OBJECTS     = $(TARGET).o
 

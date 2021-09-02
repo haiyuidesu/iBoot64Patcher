@@ -114,21 +114,6 @@ else if (version == 2817) x = v3; \
 else if (version == 3406) x = v4; \
 else                      x = v5;
 
-void *find_insn_before_ptr(void *ptr, uint32_t search, int size) {
-  int ct = 0;
-
-  while (size) {
-    uint32_t insn = *(uint32_t *)(ptr - ct);
-
-    if (insn == search) return (ptr - ct + 0x4);
-
-    size -= 0x4;
-    ct += 0x4;
-  }
-
-  return NULL;
-}
-
 void *memdata(void *ibot, uint64_t data, int data_size, void *last_ptr, unsigned int length) {
   int loc = length - (ibot - last_ptr);
  
@@ -145,24 +130,6 @@ bool detect_pac(void *ibot, unsigned int length) {
   if (pac_search) return (paced = true);
   
   return (paced = false);
-}
- 
-uint64_t locate_func(void *ibot, uint32_t insn, uint32_t _insn, unsigned int length) {
-  uint64_t loc = 0;
-
-  void *ibot_loop = ibot;
-  
-  while (ibot_loop > 0) {
-    ibot_loop = memdata(ibot, bswap32(insn), 0x4, ibot_loop, length);
-    
-    if (ibot_loop && find_insn_before_ptr(ibot_loop, bswap32(_insn), 0x400)) {
-      loc = (uint64_t)((uintptr_t)ibot_loop - (uintptr_t)ibot);
- 
-      return loc;
-    }
-  }
- 
-  return 0;
 }
 
 /*************** patchs ***************/
@@ -182,9 +149,13 @@ uint64_t rmv_signature_check(void *ibot, unsigned int length) {
 
   insn_set(insn, 0x881e0039, 0x2ba94039, 0x012a8972, 0x80129f5a, 0x606aa872);
 
-  insn = locate_func(ibot, ret, insn, length);
+  void *search = memdata(ibot, bswap32(insn), 0x4, ibot, length);
 
-  if (insn == 0) return -1;
+  if (search == NULL) return -1;
+
+  insn = (uint64_t)((uintptr_t)search - (uintptr_t)ibot);
+
+  insn = find_any_insn(ibot, insn, 1, 0x4, 0xfe1f0000, 0xd61f0000);
 
   printf("[%s]: found '_image4_validate_property_cb_interposer' RET\n", __func__);
 
@@ -448,7 +419,7 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length, char *bootargs) 
       }
 
       if (prevent_kaslr_slide(ibot, length) != 0) {
-        printf("[%s]: unable to patch kaslr slide.\n", __func__);
+        printf("[%s]: unable to patch the kaslr slide.\n", __func__);
         return -1;
       }
     }
