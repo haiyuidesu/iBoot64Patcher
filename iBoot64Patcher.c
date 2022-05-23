@@ -422,15 +422,15 @@ uint64_t set_custom_bootargs(void *ibot, unsigned int length, char *bootargs) {
 /* main */
 
 uint64_t apply_generic_patches(void *ibot, unsigned int length, char *bootargs) {
+    if (rmv_signature_check(ibot, length) != 0) {
+        printf("[%s]: unable to enable remove signature check.\n", __func__);
+        return -1;
+    }
+
+    if (avp == 1) return 0;
+
     // Looking if the iBoot has a kernel load routine
     if (memmem(ibot, length, "__PAGEZERO", strlen("__PAGEZERO")) || (avp == 1)) {
-        if (rmv_signature_check(ibot, length) != 0) {
-            printf("[%s]: unable to enable remove signature check.\n", __func__);
-            return -1;
-        }
-
-        if (avp == 1) return 0;
-
         if (enable_kernel_debug(ibot, length) != 0) {
             printf("[%s]: unable to enable kernel debugging.\n", __func__);
             return -1;
@@ -454,9 +454,6 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length, char *bootargs) 
                 return -1;
             }
         }
-    } else {
-        printf("[%s]: unable to detect any kernel load routine.\n", __func__);
-        return -1;
     }
 
     return 0;
