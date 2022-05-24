@@ -8,9 +8,9 @@
 
 #define bswap32(x) __builtin_bswap32(x)
 
-uint64_t base = 0, version = 0, paced = 0;
+int extra = 0, patch_boot_arg = 0;
 
-int extra = 0, patch_boot_arg = 0, avp = 0;
+uint64_t base = 0, version = 0, paced = 0;
 
 #define hex_set(vers, hex1, hex2) ((vers > version) ? hex1 : hex2)
 
@@ -427,10 +427,8 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length, char *bootargs) 
         return -1;
     }
 
-    if (avp == 1) return 0;
-
     // Looking if the iBoot has a kernel load routine
-    if (memmem(ibot, length, "__PAGEZERO", strlen("__PAGEZERO")) || (avp == 1)) {
+    if (memmem(ibot, length, "__PAGEZERO", strlen("__PAGEZERO"))) {
         if (enable_kernel_debug(ibot, length) != 0) {
             printf("[%s]: unable to enable kernel debugging.\n", __func__);
             return -1;
@@ -462,8 +460,7 @@ uint64_t apply_generic_patches(void *ibot, unsigned int length, char *bootargs) 
 void usage(char *owo[]) {
     char *ibot = strrchr(owo[0], '/');
 
-    printf("usage: %s [-p] <in> <out> [-e] [-b <boot-args>] [-a]\n", (ibot ? ibot + 1 : owo[0]));
-    printf("\t-a\tapply patch for the AVPBooter,\n");
+    printf("usage: %s [-p] <in> <out> [-e] [-b <boot-args>]\n", (ibot ? ibot + 1 : owo[0]));
     printf("\t-p\tapply the generics patches,\n");
     printf("\t-e\tapply the extra patches,\n");
     printf("\t-b\tapply custom boot-args.\n");
@@ -487,9 +484,6 @@ int main(int argc, char *argv[]) {
             switch (arg) {
             case 'p':
                 patch = 1;
-                break;
-            case 'a':
-                avp = 1;
                 break;
             case 'e':
                 extra = 1;
