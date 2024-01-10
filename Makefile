@@ -4,25 +4,24 @@ CC          = gcc
 TARGET      = iBoot64Patcher
 INSTALL     = /usr/local/bin
 
-uname_s     = $(shell uname -s)
+CFLAGS      += -DDEBUG -I. -g3 -O3
+CFLAGS      += -Wall -Wextra -Wno-format
 
-CFLAGS      = -DDEBUG -O3 -c -I. -g3 -Wall -Wextra -Wno-format -o
-
-OBJECTS     = $(TARGET).o
+SRC         := $(shell find . -name "*.c")
+OBJECTS     := $(SRC:%.c=%.o)
 
 default: all
 
 all: $(TARGET)
 
 %.o: %.c
-	@echo "[INFO]: compiling $(TARGET)"
 	@echo "CC	$<"
-	@$(CC) $< $(CFLAGS) $@
+	@$(CC) $< -c $(CFLAGS) -o $@
 
 $(TARGET): $(OBJECTS)
 	@echo "LD	$(TARGET)"
 	@$(CC) $(OBJECTS) -o $(TARGET)
-	@echo "OK: built $(TARGET) for $(uname_s)"
+	@echo "[OK]: built $(TARGET) for $(shell uname -s)"
 
 install: $(TARGET)
 	@install -v $(TARGET) $(INSTALL)

@@ -8,15 +8,22 @@ I. Requierements
 	3. decrypted 64bit iBoot.
 
 II. Usage
-usage: iBoot64Patcher [-p] <in> <out> [-e] [-b <boot-args>] [-a]
-	-a	apply patch for the AVPBooter,
+usage: iBoot64Patcher -p <in> <out> [-e] [-b <boot-args>]
 	-p	apply the generics patches,
 	-e	apply the extra patches,
 	-b	apply custom boot-args.
 
 	$ iBoot64Patcher -p iBoot.RELEASE.bin iBoot.RELEASE.pwn -e -b "serial=3"
 
-III. Notes
+III. Available patches
+	> Allow kernel debug,
+	> Remove signature check,
+	> Prevent KASLR randomization,
+	> Setting up custom Boot-args,
+	> Allow to load any image type.
+
+IV. Notes
+	> use the ARM docs for building more instructions,
 	> kairos is a way better (mine can be used for tests purposes),
 	> iBoot64Patcher supports any iBoots (PACed or not) from iOS 7 to iOS 15,
 	> I used some technics of @dayt0n kairos project and @xerub xref64 function as well,
