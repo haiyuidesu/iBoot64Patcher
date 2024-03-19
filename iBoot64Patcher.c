@@ -467,8 +467,8 @@ uint64_t apply_generic_patches(void *ibot, size_t length, char *bootargs)
 void usage(char *owo[]) {
     char *name = strrchr(owo[0], '/');
 
-    printf("usage: %s -p <in> <out> [-e] [-b <boot-args>]\n", (name ? name + 1 : owo[0]));
-    printf("\t-p\tapply the generics patches,\n");
+    printf("usage: %s <in> <out> [-e] [-b <boot-args>]\n", (name ? name + 1 : owo[0]));
+    printf("\tdefault\tapply the generics patches,\n");
     printf("\t-e\tapply the extra patches,\n");
     printf("\t-b\tapply custom boot-args.\n");
 
@@ -479,21 +479,17 @@ int main(int argc, char *argv[])
 {
     FILE *fd = NULL;
     void *ibot = NULL;
-    bool patch = false;
     char *bootargs = NULL;
     int arg_counter = argc - 1;
     size_t length = 0, read = 0;
 
-    if (argc < 4) usage(argv);
+    if (argc < 3) usage(argv);
 
     while (arg_counter) {
         if (*argv[arg_counter] == '-') {
             char arg = *(argv[arg_counter] + 1);
 
             switch (arg) {
-            case 'p':
-                patch = true;
-                break;
             case 'e':
                 extra = 1;
                 break;
@@ -510,15 +506,11 @@ int main(int argc, char *argv[])
         arg_counter--;
     }
 
-    if (patch == false) {
-        printf("[%s]: missing flag \"-p\", please execute iBoot64Patcher again.\n\n", __func__);
-        usage(argv);
-    }
 
     printf("[%s]: starting...\n", __func__);
 
-    if (!(fd = fopen(argv[2], "rb"))) {
-        printf("[%s]: unable to open %s.\n", __func__, argv[2]);
+    if (!(fd = fopen(argv[1], "rb"))) {
+        printf("[%s]: unable to open %s.\n", __func__, argv[1]);
         return -1;
     }
 
@@ -531,7 +523,7 @@ int main(int argc, char *argv[])
     ibot = (void *)malloc(sizeof(char) * (length + 1));
 
     if ((read = fread(ibot, 1, length, fd) != length)) {
-        printf("[%s]: can't read %s.\n", __func__, argv[2]);
+        printf("[%s]: can't read %s.\n", __func__, argv[1]);
         free(ibot);
         return -1;
     }
@@ -555,13 +547,13 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    if (!(fd = fopen(argv[3], "wb+"))) {
-        printf("\n[%s]: unable to open %s!\n", __func__, argv[3]);
+    if (!(fd = fopen(argv[2], "wb+"))) {
+        printf("\n[%s]: unable to open %s!\n", __func__, argv[2]);
         free(ibot);
         return -1;
     }
 
-    printf("\n[%s]: writing %s...\n", __func__, argv[3]);
+    printf("\n[%s]: writing %s...\n", __func__, argv[2]);
 
     fwrite(ibot, length, 1, fd);
 

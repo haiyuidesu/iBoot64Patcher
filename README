@@ -3,17 +3,17 @@ iBoot64Patcher
 > Patch the iBoot64 (+ SecureROM | AVPBooter) with generic patches.
 
 I. Requierements
-	1. macOS/Linux,
+	1. macOS/Linux/Windows,
 	2. basic compilation tools,
 	3. decrypted 64bit iBoot.
 
 II. Usage
-usage: iBoot64Patcher -p <in> <out> [-e] [-b <boot-args>]
-	-p	apply the generics patches,
+usage: iBoot64Patcher <in> <out> [-e] [-b <boot-args>]
+	default	apply the generics patches,
 	-e	apply the extra patches,
 	-b	apply custom boot-args.
 
-	$ iBoot64Patcher -p iBoot.RELEASE.bin iBoot.RELEASE.pwn -e -b "serial=3"
+	$ iBoot64Patcher iBoot.RELEASE.bin iBoot.RELEASE.pwn -e -b "serial=3"
 
 III. Available patches
 	> Allow kernel debug,
